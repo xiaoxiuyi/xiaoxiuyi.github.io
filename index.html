@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>代码翻译工具</title>
+    <title>X2CJ翻译工具</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -59,32 +59,72 @@
         #reset-btn:hover {
             background-color: #d32f2f;
         }
+        #copy-btn {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+        #copy-btn:hover {
+            background-color: #0b7dda;
+        }
         .editor-container {
             display: flex;
             gap: 20px;
-        }
-        .editor-box {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
         }
         .editor-label {
             font-weight: bold;
             margin-bottom: 8px;
             color: #555;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 34px;
+            box-sizing: border-box;
+        }
+        .editor-box {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            align-items: stretch;
         }
         textarea {
             width: 100%;
-            height: 500px;
+            height: 650px;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
             font-family: monospace;
             font-size: 14px;
             resize: none;
+            box-sizing: border-box;
         }
         #output-text {
             background-color: #f9f9f9;
+        }
+        .input-counter {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            font-size: 12px;
+            color: #999;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        .limit-exceeded {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .queue-info-container {
+            margin-top: 5px;
+        }
+        .queue-info {
+            font-size: 12px;
+            color: #999;
+            text-align: left;
         }
     </style>
 </head>
@@ -106,16 +146,23 @@
                 <button id="translate-btn">翻译</button>
             </div>
         </div>
-        
+
         <div class="editor-container">
             <div class="editor-box">
-                <div class="editor-label">输入代码</div>
+                <div class="editor-label">输入代码(最大行数50行，最大字符数500)</div>
                 <textarea id="input-text" placeholder="请输入要翻译的代码..."></textarea>
+                <div id="input-counter" class="input-counter">0行 / 0字符</div>
             </div>
             <div class="editor-box">
-                <div class="editor-label">翻译结果</div>
+                <div class="editor-label">
+                    <span>翻译结果</span>
+                    <button id="copy-btn">复制</button>
+                </div>
                 <textarea id="output-text" readonly></textarea>
             </div>
+        </div>
+        <div class="queue-info-container">
+            <div class="queue-info">当前排队人数：1/10</div>
         </div>
     </div>
 
@@ -125,43 +172,105 @@
             const model = document.getElementById('model');
             const resetBtn = document.getElementById('reset-btn');
             const translateBtn = document.getElementById('translate-btn');
+            const copyBtn = document.getElementById('copy-btn');
             const inputText = document.getElementById('input-text');
             const outputText = document.getElementById('output-text');
-            
+            const inputCounter = document.getElementById('input-counter');
+
+            // 更新输入框字符统计
+            function updateCounter() {
+                const text = inputText.value;
+                const lineCount = text.split('\n').length;
+                const charCount = text.length;
+
+                inputCounter.textContent = `${lineCount}行 / ${charCount}字符`;
+
+                // 如果超过限制，添加警告样式
+                if (lineCount > 50 || charCount > 500) {
+                    inputCounter.classList.add('limit-exceeded');
+                } else {
+                    inputCounter.classList.remove('limit-exceeded');
+                }
+            }
+
+            // 初始化时更新一次
+            updateCounter();
+
+            // 监听输入框变化
+            inputText.addEventListener('input', updateCounter);
+
             // 重置功能
             resetBtn.addEventListener('click', function() {
                 inputText.value = '';
                 outputText.value = '';
+                updateCounter();
             });
-            
-            // 翻译功能（目前只是模拟）
+
+            // 翻译功能
             translateBtn.addEventListener('click', function() {
                 const text = inputText.value.trim();
                 if (!text) {
                     alert('请输入要翻译的代码');
                     return;
                 }
-                
-                // 模拟翻译过程
-                outputText.value = "模拟翻译结果：\n\n" + 
-                                 `输入语言: ${inputLang.value}\n` +
-                                 `模型: ${model.value}\n\n` +
-                                 text;
-                
-                // 实际使用时替换为API调用：
-                // fetch('/translate', {
-                //     method: 'POST',
-                //     headers: { 'Content-Type': 'application/json' },
-                //     body: JSON.stringify({
-                //         code: text,
-                //         inputLang: inputLang.value,
-                //         model: model.value
-                //     })
-                // })
-                // .then(response => response.json())
-                // .then(data => {
-                //     outputText.value = data.translatedCode;
-                // });
+
+                const lineCount = text.split('\n').length;
+                const charCount = text.length;
+
+                if (lineCount > 50 || charCount > 500) {
+                    alert(`输入内容超出限制！\n当前: ${lineCount}行 / ${charCount}字符\n最大: 50行 / 500字符`);
+                    return;
+                }
+
+                // 显示加载状态
+                translateBtn.disabled = true;
+                translateBtn.textContent = '翻译中...';
+
+                // 调用本地服务器API
+                fetch('http://localhost:5000/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: text,
+                        inputLang: inputLang.value,
+                        model: model.value
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error || '翻译失败') });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    outputText.value = data.translatedCode;
+                    document.querySelector('.queue-info').textContent = `当前排队人数：0/10`;
+                })
+                .catch(error => {
+                    alert(error.message);
+                })
+                .finally(() => {
+                    translateBtn.disabled = false;
+                    translateBtn.textContent = '翻译';
+                });
+            });
+
+            // 复制功能
+            copyBtn.addEventListener('click', function() {
+                if (!outputText.value) {
+                    alert('没有可复制的内容');
+                    return;
+                }
+
+                outputText.select();
+                document.execCommand('copy');
+
+                // 显示复制成功提示
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = '已复制!';
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                }, 2000);
             });
         });
     </script>
